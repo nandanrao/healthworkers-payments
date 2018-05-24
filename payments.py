@@ -28,20 +28,26 @@ def count_reports(collection, start, end, nums):
               'reports': c['count'],
               'payment_due': end}
              for c in cursor)
-    return pd.DataFrame(list(dicts))
+    li = list(dicts)
+    if len(li) > 0:
+        df = pd.DataFrame(li)
+        return df.assign(reports = df.reports.map(lambda r: min(30, r)))
+    else:
+        return pd.DataFrame([])
+
 
 def bonus_worker(treat, reports, **kwargs):
     if treat == 2:
-        return min(reports*2000, 60000)
+        return reports*2000
     if treat == 3:
-        return min(reports*1000, 30000)
+        return reports*1000
     return 0
 
 def bonus_super(treat, reports, **kwargs):
     if treat == 1:
-        return min(reports*2000, 60000)
+        return reports*2000
     if treat == 3:
-        return min(reports*1000, 30000)
+        return reports*1000
     return 0
 
 def base(df):
@@ -63,15 +69,16 @@ def pay_supers(df):
             .rename( columns = {'phone_ps': 'number'})
             [['number', 'payment']])
 
-def pay_workers(df):
+def calc_payment_per_worker(df):
     return (df
             .pipe(base)
             .pipe(bonus, fn = bonus_worker)
-            .pipe(lambda df: df.assign(payment = df.bonus + df.base))
+            .pipe(lambda df: df.assign(payment = df.bonus + df.base)))
+
+def pay_workers(df):
+    return (calc_payment_per_worker(df)
             .rename( columns = {'reporting_number': 'number'})
             [['number', 'payment']])
-
-
 
 def translate_numbers(df, crosswalk):
     d = df.merge(crosswalk, how = 'left', left_on = 'reporting_number', right_on= 'old_number')
@@ -87,7 +94,8 @@ def agg_reports(df):
 def get_count_df(coll, df, crosswalk):
     groups = [g for g in df.groupby('training_date')]
     reports = [[count_reports(coll, start, end, g[1].reporting_number) for start,end in monther(g[0])] for g in groups]
-    reports = [i for r in reports for i in r]
+    print(reports)
+    reports = [i for r in reports for i in r if not i.empty]
     translated = [r.pipe(translate_numbers, crosswalk = crosswalk).pipe(agg_reports)
                   for r in reports]
     return pd.concat(translated).merge(df, on = 'reporting_number', how = 'left')
@@ -130,7 +138,7 @@ def write_to_s3(df, key):
     s3 = boto3.client('s3')
     s3.put_object(
         Bucket='healthworkers-payments',
-        Key="{1}-{0:%d-%m-%y}.csv".format(datetime.now(), key),
+        Key="{1}-{0:%d-%m-%y_%H:%M}.csv".format(datetime.now(), key),
         Body=out.getvalue()
     )
 

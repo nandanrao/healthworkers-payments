@@ -94,7 +94,6 @@ def agg_reports(df):
 def get_count_df(coll, df, crosswalk):
     groups = [g for g in df.groupby('training_date')]
     reports = [[count_reports(coll, start, end, g[1].reporting_number) for start,end in monther(g[0])] for g in groups]
-    print(reports)
     reports = [i for r in reports for i in r if not i.empty]
     translated = [r.pipe(translate_numbers, crosswalk = crosswalk).pipe(agg_reports)
                   for r in reports]

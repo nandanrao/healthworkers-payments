@@ -1,3 +1,7 @@
+.ipython
+.jupyter
+.local
+**/*.DS_Store
 venv/
 
 

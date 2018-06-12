@@ -132,7 +132,6 @@ def test_payments(collection, df):
     supers = calc_payments(collection, df, crosswalk, pay_supers)
     assert(supers.payment.tolist() == [10000, 10000, 11000, 10000, 12000, 10000])
 
-
 def test_payments_caps_at_30(fat_collection, df):
     crosswalk = pd.DataFrame([{ 'old_number': 'no', 'new_payment_number': 'yes'}])
     workers = calc_payments(fat_collection, df, crosswalk, pay_workers)

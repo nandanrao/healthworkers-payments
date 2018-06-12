@@ -5,8 +5,20 @@ import os
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta as rd
 from functools import reduce
+from itertools import islice, takewhile, count
 import boto3
 import io
+
+def chunk(n, it):
+    src = iter(it)
+    return takewhile(bool, (list(islice(src, n)) for _ in count(0)))
+
+def get_mongo_client(test = False):
+    host = os.getenv('MONGO_HOST_TEST') if test else os.getenv('MONGO_HOST')
+    client = MongoClient(host,
+                     username = os.getenv('MONGO_USER'),
+                     password = os.getenv('MONGO_PASSWORD'))
+    return client
 
 def monther(date, now = datetime.utcnow()):
     date = date + timedelta(days = 1)
@@ -118,11 +130,8 @@ def get_crosswalk(path):
     crosswalk['old_number'] = crosswalk.z08_2.astype(str)
     return crosswalk
 
-
 def calcs():
-    client = MongoClient(os.getenv('MONGO_HOST') or None,
-                     username = os.getenv('MONGO_USER'),
-                     password = os.getenv('MONGO_PASSWORD'))
+    client = get_mongo_client()
     coll = client['healthworkers'].messages
     df = get_numbers('rosters/chw.xlsx')
     crosswalk = get_crosswalk('number-changes/number_changes.xlsx')

@@ -70,15 +70,18 @@ def get_typeform_responses(form_id):
     return df
 
 # COPIED FROM RETRIEVER --> TODO: COMBINE!
+not_d = re.compile(r'[^\d]+')
+start = re.compile(r'^[^\d]')
+
 def get_service_date(entry):
     report_date = entry['Report_Date']
     date = entry['Service_Date']
-    date = re.sub(r'[^\d]+', '.', date)
-    date = re.sub(r'^[^\d]', '', date)
+    date = re.sub(not_d, '.', date)
+    date = re.sub(start, '', date)
     try:
         date = datetime.strptime(date, '%d.%m.%Y')
-        if date > report_date:
-            raise FutureException('Service date in future: {}'.format(date))
+        # if date > report_date:
+        #     raise FutureException('Service date in future: {}'.format(date))
     except Exception as e:
         logging.error(e)
         date = report_date
@@ -97,6 +100,8 @@ def convert_entry(d):
         'attempts': d.get('attempts'),
         'code': d.get('code'), # og??
         'serviceDate': service_date,
+        'noConsent': d.get('noConsent'),
+        'timestamp': og['Report_Date'],
         'workerPhone': og['Sender_Phone_Number'],
         'patientPhone': og['Patient_Phone_Number'],
         'patientName': og['Patient_Name'],
@@ -109,7 +114,6 @@ def get_og_messages(collection):
     df['last_attempt'] = df.attempts.map(lambda a: get_attempts(a,-1))
     return df
 
-
 def merge_typeform(messages, typeform):
 
     typeform = (typeform
@@ -119,27 +123,29 @@ def merge_typeform(messages, typeform):
 
     messages = (messages.assign(serviceDate = messages.serviceDate.map(datetime.date))
                 .assign(patientName = messages.patientName.str.upper())
-                .assign(code = messages.code.str.upper()))
+                .assign(code = messages.code.str.upper())
+                .groupby(['workerPhone', 'patientName', 'code', 'patientPhone', 'serviceDate'])
+                .apply(lambda df: df.head(1)))
 
     return (messages
             .merge(typeform,
-                   how = 'outer',
-                   left_on=['patientPhone', 'serviceDate', 'patientName', 'code'],
-                   right_on=['patientphone', 'visitdate', 'patient', 'code'],
+                   how = 'left',
+                   left_on=['workerPhone', 'patientPhone', 'patientName', 'code'],
+                   right_on=['workerphone', 'patientphone', 'patient', 'code'],
                    indicator = True)
-            # [['_id',
-            #   'first_attempt',
-            #   'last_attempt',
-            #   'called',
-            #   '_merge',
-            #   'noConsent',
-            #   'patientName',
-            #   'patientPhone',
-            #   'serviceDate',
-            #   'training',
-            #   'workerPhone',
-            #   'code',
-            #   'provided_care']]
+            [[
+              'first_attempt',
+              'last_attempt',
+              'called',
+              '_merge',
+              'noConsent',
+              'patientName',
+              'patientPhone',
+              'serviceDate',
+              'training',
+              'workerPhone',
+              'code',
+              'provided_care']]
             )
 
 class DataCorruptionError(BaseException):
@@ -167,17 +173,36 @@ class DataCorruptionError(BaseException):
 
 # tagged = tag_training_df(training_dates, messages, testers)
 
-# uniques = (tagged
-#            .groupby(['patientName', 'code', 'serviceDate', 'patientPhone'])
-#            .apply(lambda df: df.head(1)))
+# # uniques = (tagged
+# #            .groupby(['patientName', 'code', 'serviceDate', 'patientPhone'])
+# #            .apply(lambda df: df.head(1)))
 
-# merged = merge_typeform(uniques, typeform)
+# messages = None
+
+# merged = merge_typeform(tagged, typeform)
 
 # missing = merged[(~merged.workerPhone.isin(numbers.reporting_number)) &
 #                  (merged.training == False)].shape[0]
 # if missing:
 #     raise Exception('Missing numbers!!')
 
+# numbers = numbers.assign(training_date = numbers.training_date.map(datetime.date))
+
 # final = (merged
 #          .merge(numbers, left_on='workerPhone', right_on='reporting_number')
-#          .drop(['_id', 'workerPhone', '_merge'], 1))
+#          .assign(training = merged.training.map(lambda x: x if x == True else False))
+#          .assign(called = merged.called.map(lambda x: x if x == True else False))
+#          .drop(['workerPhone', '_merge'], 1))
+
+# idx = final.called == True
+
+# final.loc[idx, 'multiple'] = (final
+#                               [final.called == True]
+#                               .groupby(['patientName', 'code', 'patientPhone', 'reporting_number'])
+#                               .apply(lambda df: df.assign(multiple = True if df.shape[0] > 1 else False ))
+#                               .multiple.reset_index([0,1,2,3]).multiple)
+
+
+# final = final.assign(multiple = final.multiple.map(lambda x: x if x == True else False))
+
+# final.to_csv('report_2018-6-13.csv', index=False)

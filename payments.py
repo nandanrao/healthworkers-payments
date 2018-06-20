@@ -132,7 +132,7 @@ def get_crosswalk(path):
 
 def calcs():
     client = get_mongo_client()
-    coll = client['healthworkers'].messages
+    coll = create_clean_collection(client)
     df = get_numbers('rosters/chw.xlsx')
     crosswalk = get_crosswalk('number-changes/number_changes.xlsx')
     workers = calc_payments(coll, df, crosswalk, pay_workers)
@@ -149,6 +149,34 @@ def write_to_s3(df, key):
         Key="{1}-{0:%d-%m-%y_%H:%M}.csv".format(datetime.now(), key),
         Body=out.getvalue()
     )
+
+from reports import get_og_messages
+from pymongo import InsertOne
+
+
+def create_clean_collection(client):
+    old_coll = client['healthworkers'].messages
+    messages = get_og_messages(old_coll)
+
+    messages = (messages
+                .assign(serviceDate = messages.serviceDate.map(datetime.date))
+                .assign(patientName = messages.patientName.str.upper())
+                .assign(code = messages.code.str.upper())
+                .groupby(['workerPhone', 'patientName', 'code', 'patientPhone', 'serviceDate'])
+                .apply(lambda df: df.head(1)))
+
+    dicts = messages.drop(['first_attempt', 'last_attempt'], 1).to_dict(orient = 'records')
+
+    temp_coll = client['healthworkers'].temp
+    i = 0
+    chunked = chunk(400, dicts)
+    for c in chunked:
+        requests = [ InsertOne(obj) for obj in c]
+        i += len(requests)
+        temp_coll.bulk_write(requests, ordered=False)
+    logging.info('WROTE {} MESSAGES TO NEW COLLECTION'.format(i))
+    return new_coll
+
 
 if __name__ == '__main__':
     workers, supers = calcs()

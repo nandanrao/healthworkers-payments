@@ -1,13 +1,15 @@
 import pandas as pd
-from pymongo import MongoClient
+from pymongo import MongoClient, InsertOne
 import numpy as np
-import os
+import os, re
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta as rd
 from functools import reduce
 from itertools import islice, takewhile, count
 import boto3
 import io
+
+import logging
 
 def chunk(n, it):
     src = iter(it)
@@ -19,6 +21,59 @@ def get_mongo_client(test = False):
                      username = os.getenv('MONGO_USER'),
                      password = os.getenv('MONGO_PASSWORD'))
     return client
+
+class MalformedDateException(Exception):
+    pass
+
+# COPIED FROM RETRIEVER --> TODO: COMBINE!
+not_d = re.compile(r'[^\d]+')
+start = re.compile(r'^[^\d]')
+
+def get_service_date(entry):
+    report_date = entry['Report_Date']
+    date = entry['Service_Date']
+    date = re.sub(not_d, '.', date)
+    date = re.sub(start, '', date)
+    try:
+        date = datetime.strptime(date, '%d.%m.%Y')
+        if date > report_date:
+            raise MalformedDateException('Service date in future: {}'.format(date))
+        if report_date - date > timedelta(weeks = 8):
+            raise MalformedDateException('Service date too far in the past: {}'.format(date))
+    except MalformedDateException as e:
+        logging.debug(e)
+        date = report_date
+    except Exception as e:
+        logging.error(e)
+        date = report_date
+    return date
+
+def get_attempts(a, idx):
+    try:
+        return a[idx]
+    except:
+        return None
+
+def convert_entry(d):
+    og = d['originalEntry']
+    service_date = get_service_date(og)
+    return {
+        'attempts': d.get('attempts'),
+        'code': d.get('code'), # og??
+        'serviceDate': service_date,
+        'noConsent': d.get('noConsent'),
+        'timestamp': og['Report_Date'],
+        'workerPhone': og['Sender_Phone_Number'],
+        'patientPhone': og['Patient_Phone_Number'],
+        'patientName': og['Patient_Name'],
+    }
+
+
+def get_og_messages(collection):
+    df = pd.DataFrame(list((convert_entry(e) for e in collection.find({}))))
+    df['first_attempt'] = df.attempts.map(lambda a: get_attempts(a,0))
+    df['last_attempt'] = df.attempts.map(lambda a: get_attempts(a,-1))
+    return df
 
 def monther(date, now = datetime.utcnow()):
     date = date + timedelta(days = 1)
@@ -132,11 +187,15 @@ def get_crosswalk(path):
 
 def calcs():
     client = get_mongo_client()
-    coll = create_clean_collection(client)
+    old_coll = client['healthworkers'].messages
+    temp_coll = client['healthworkers'].temp
+    create_clean_collection(old_coll, temp_coll)
+
     df = get_numbers('rosters/chw.xlsx')
     crosswalk = get_crosswalk('number-changes/number_changes.xlsx')
-    workers = calc_payments(coll, df, crosswalk, pay_workers)
-    supers = calc_payments(coll, df, crosswalk, pay_supers)
+    workers = calc_payments(temp_coll, df, crosswalk, pay_workers)
+    supers = calc_payments(temp_coll, df, crosswalk, pay_supers)
+    temp_coll.drop()
     return workers, supers
 
 def write_to_s3(df, key):
@@ -150,24 +209,22 @@ def write_to_s3(df, key):
         Body=out.getvalue()
     )
 
-from reports import get_og_messages
-from pymongo import InsertOne
+def fix_time(d):
+    return datetime.combine(datetime.date(d), datetime.min.time())
 
+def create_clean_collection(old_coll, temp_coll):
 
-def create_clean_collection(client):
-    old_coll = client['healthworkers'].messages
     messages = get_og_messages(old_coll)
 
     messages = (messages
-                .assign(serviceDate = messages.serviceDate.map(datetime.date))
+                .assign(serviceDate = messages.serviceDate.map(fix_time))
                 .assign(patientName = messages.patientName.str.upper())
                 .assign(code = messages.code.str.upper())
                 .groupby(['workerPhone', 'patientName', 'code', 'patientPhone', 'serviceDate'])
                 .apply(lambda df: df.head(1)))
 
-    dicts = messages.drop(['first_attempt', 'last_attempt'], 1).to_dict(orient = 'records')
+    dicts = messages.to_dict(orient = 'records')
 
-    temp_coll = client['healthworkers'].temp
     i = 0
     chunked = chunk(400, dicts)
     for c in chunked:
@@ -175,7 +232,7 @@ def create_clean_collection(client):
         i += len(requests)
         temp_coll.bulk_write(requests, ordered=False)
     logging.info('WROTE {} MESSAGES TO NEW COLLECTION'.format(i))
-    return new_coll
+    return temp_coll
 
 
 if __name__ == '__main__':

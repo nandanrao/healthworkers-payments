@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from dateutil import parser
 import os, re
 import requests
-from payments import get_numbers, get_mongo_client, get_crosswalk
+from payments import get_numbers, get_mongo_client, get_crosswalk, get_og_messages
 from tag_training import tag_training_df
 from load_workers import get_testers
 
@@ -69,50 +69,7 @@ def get_typeform_responses(form_id):
     df = pd.DataFrame([flatten_response(r) for r in responses])
     return df
 
-# COPIED FROM RETRIEVER --> TODO: COMBINE!
-not_d = re.compile(r'[^\d]+')
-start = re.compile(r'^[^\d]')
 
-def get_service_date(entry):
-    report_date = entry['Report_Date']
-    date = entry['Service_Date']
-    date = re.sub(not_d, '.', date)
-    date = re.sub(start, '', date)
-    try:
-        date = datetime.strptime(date, '%d.%m.%Y')
-        # if date > report_date:
-        #     raise FutureException('Service date in future: {}'.format(date))
-    except Exception as e:
-        logging.error(e)
-        date = report_date
-    return date
-
-def get_attempts(a, idx):
-    try:
-        return a[idx]
-    except:
-        return None
-
-def convert_entry(d):
-    og = d['originalEntry']
-    service_date = get_service_date(og)
-    return {
-        'attempts': d.get('attempts'),
-        'code': d.get('code'), # og??
-        'serviceDate': service_date,
-        'noConsent': d.get('noConsent'),
-        'timestamp': og['Report_Date'],
-        'workerPhone': og['Sender_Phone_Number'],
-        'patientPhone': og['Patient_Phone_Number'],
-        'patientName': og['Patient_Name'],
-    }
-
-
-def get_og_messages(collection):
-    df = pd.DataFrame(list((convert_entry(e) for e in collection.find({}))))
-    df['first_attempt'] = df.attempts.map(lambda a: get_attempts(a,0))
-    df['last_attempt'] = df.attempts.map(lambda a: get_attempts(a,-1))
-    return df
 
 def merge_typeform(messages, typeform):
 

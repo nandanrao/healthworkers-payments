@@ -15,6 +15,12 @@ records = [
     { 'text': 'baz'}
 ]
 
+records_og = [
+    { 'code': 'a', 'originalEntry': { 'Report_Date': datetime(2018,2,5), 'Sender_Phone_Number': '012', 'Patient_Phone_Number': '034', 'Patient_Name': 'mark', 'Service_Date': '01.05.2018', 'code': 'a' }},
+    { 'code': 'a', 'originalEntry': { 'Report_Date': datetime(2018,2,5), 'Sender_Phone_Number': '012', 'Patient_Phone_Number': '034', 'Patient_Name': 'mark', 'Service_Date': '01.05.2018', 'code': 'a' }},
+    { 'code': 'a', 'originalEntry': { 'Report_Date': datetime(2018,2,5), 'Sender_Phone_Number': '012', 'Patient_Phone_Number': '024', 'Patient_Name': 'mark', 'Service_Date': '12.09.2017', 'code': 'a' }}
+]
+
 fat_records = [
     { 'name': 'mark-{}'.format(i), 'workerPhone': 'qux', 'serviceDate': datetime(2018,m,3)}
 for m in range (3,5) for i in range(1,50)]
@@ -50,6 +56,17 @@ def fat_collection():
     collection.insert_many(fat_records)
     yield collection
     collection.drop()
+    client.close()
+
+@pytest.fixture(scope="module")
+def colls_for_cleaning():
+    client = MongoClient()
+    old_coll = client['hw-test'].m2
+    new_coll = client['hw-test'].temp
+    old_coll.insert_many(records_og)
+    yield old_coll, new_coll
+    old_coll.drop()
+    new_coll.drop()
     client.close()
 
 
@@ -140,3 +157,9 @@ def test_payments_caps_at_30(fat_collection, df):
     supers = calc_payments(fat_collection, df, crosswalk, pay_supers)
     supers = supers[supers.number == 'd']
     assert(supers.payment.tolist() == [41000, 40000])
+
+def test_create_clean_collection(colls_for_cleaning):
+    old_coll, new_coll = colls_for_cleaning
+    m = create_clean_collection(old_coll, new_coll)
+    a = list(new_coll.find())
+    assert(len(a) == 2)

@@ -71,8 +71,6 @@ def convert_entry(d):
 
 def get_og_messages(collection):
     df = pd.DataFrame(list((convert_entry(e) for e in collection.find({}))))
-    df['first_attempt'] = df.attempts.map(lambda a: get_attempts(a,0))
-    df['last_attempt'] = df.attempts.map(lambda a: get_attempts(a,-1))
     return df
 
 def monther(date, now = datetime.utcnow()):
@@ -194,7 +192,7 @@ def calcs():
     df = get_numbers('rosters/chw.xlsx')
     crosswalk = get_crosswalk('number-changes/number_changes.xlsx')
     workers = calc_payments(temp_coll, df, crosswalk, pay_workers)
-    supers = calc_payments(temp_coll, df, crosswalk, pay_supers)
+    supers = calc_payments(coll, df, crosswalk, pay_supers)
     temp_coll.drop()
     return workers, supers
 

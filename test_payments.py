@@ -5,20 +5,25 @@ import pytest
 records = [
     { 'name': 'mark', 'workerPhone': 'bar', 'serviceDate': datetime(2018,1,3)},
     { 'name': 'mark', 'workerPhone': 'bar', 'serviceDate': datetime(2018,2,1)},
+
     { 'name': 'mark', 'workerPhone': 'bar', 'serviceDate': datetime(2018,4,1)},
-    { 'name': 'mark', 'workerPhone': 'ham', 'serviceDate': datetime(2018,4,1)},
+    { 'name': 'clue', 'workerPhone': 'baz', 'serviceDate': datetime(2018,4,1)},
+    { 'name': 'clue', 'workerPhone': 'brat', 'serviceDate': datetime(2018,4,1)},
+
     { 'name': 'mark', 'workerPhone': 'bar', 'serviceDate': datetime(2018,5,1)},
     { 'name': 'mark', 'workerPhone': 'foo', 'serviceDate': datetime(2018,5,1)},
     { 'name': 'mark', 'workerPhone': 'foo', 'serviceDate': datetime(2018,5,1)},
     { 'name': 'clue', 'workerPhone': 'baz', 'serviceDate': datetime(2018,5,1)},
+
     { 'name': 'clue', 'workerPhone': 'qux', 'serviceDate': datetime(2100,12,1)},
     { 'text': 'baz'}
 ]
 
 records_og = [
-    { 'code': 'a', 'originalEntry': { 'Report_Date': datetime(2018,2,5), 'Sender_Phone_Number': '012', 'Patient_Phone_Number': '034', 'Patient_Name': 'mark', 'Service_Date': '01.05.2018', 'code': 'a' }},
-    { 'code': 'a', 'originalEntry': { 'Report_Date': datetime(2018,2,5), 'Sender_Phone_Number': '012', 'Patient_Phone_Number': '034', 'Patient_Name': 'mark', 'Service_Date': '01.05.2018', 'code': 'a' }},
-    { 'code': 'a', 'originalEntry': { 'Report_Date': datetime(2018,2,5), 'Sender_Phone_Number': '012', 'Patient_Phone_Number': '024', 'Patient_Name': 'mark', 'Service_Date': '12.09.2017', 'code': 'a' }}
+    { 'code': 'a', 'originalEntry': { 'Report_Date': datetime(2018,2,5), 'Sender_Phone_Number': 'foo', 'Patient_Phone_Number': '034', 'Patient_Name': 'mark', 'Service_Date': '01.05.2018', 'code': 'a' }},
+    { 'code': 'a', 'originalEntry': { 'Report_Date': datetime(2018,2,5), 'Sender_Phone_Number': 'foo', 'Patient_Phone_Number': '034', 'Patient_Name': 'mark', 'Service_Date': '01.05.2018', 'code': 'a' }},
+    { 'code': 'a', 'originalEntry': { 'Report_Date': datetime(2018,2,5), 'Sender_Phone_Number': 'bar', 'Patient_Phone_Number': '034', 'Patient_Name': 'mark', 'Service_Date': '01.05.2018', 'code': 'a' }},
+    { 'code': 'a', 'originalEntry': { 'Report_Date': datetime(2018,2,5), 'Sender_Phone_Number': 'baz', 'Patient_Phone_Number': '024', 'Patient_Name': 'mark', 'Service_Date': '12.09.2017', 'code': 'a' }}
 ]
 
 fat_records = [
@@ -32,7 +37,8 @@ def df():
         { 'phone_ps': 'b', 'reporting_number': 'baz', 'treat': 1, 'training_date': datetime(2018,1,1)},
         { 'phone_ps': 'c', 'reporting_number': 'bar', 'treat': 2, 'training_date': datetime(2018,1,1)},
         { 'phone_ps': 'd', 'reporting_number': 'qux', 'treat': 3, 'training_date': datetime(2018,1,1)},
-        { 'phone_ps': 'd', 'reporting_number': 'ham', 'treat': 3, 'training_date': datetime(2018,1,1)},
+        { 'phone_ps': 'd', 'reporting_number': 'brat', 'treat': 3, 'training_date': datetime(2018,1,1)},
+        { 'phone_ps': 'f', 'reporting_number': 'ham', 'treat': 3, 'training_date': datetime(2018,1,1)},
     ])
     yield df
 
@@ -130,24 +136,49 @@ def test_translate_numbers():
     assert(translated.shape == (3,3))
 
 
+def test_translate_numbers_with_multiple_levels():
+    df = pd.DataFrame([
+        { 'reporting_number': 'foo', 'payment_due':datetime(2018,5,1), 'reports': 2 },
+        { 'reporting_number': 'foo1', 'payment_due':datetime(2018,5,1), 'reports': 2 },
+        { 'reporting_number': 'bar', 'payment_due': datetime(2018,5,2), 'reports': 1 },
+        { 'reporting_number': 'baz', 'payment_due': datetime(2018,5,1), 'reports': 1 }])
+
+    crosswalk = pd.DataFrame([
+        {'old_number': 'foo', 'new_payment_number': 'baz'},
+        {'old_number': 'foo1', 'new_payment_number': 'baz'}
+    ])
+    translated = translate_numbers(df, crosswalk)
+    assert(translated.reporting_number.tolist() == ['baz', 'baz', 'bar', 'baz'])
+    assert(translated.shape == (4,3))
+
+
 def test_aggs_reports():
     df = pd.DataFrame([
         { 'reporting_number': 'foo', 'payment_due':datetime(2018,5,1), 'reports': 2 },
         { 'reporting_number': 'bar', 'payment_due': datetime(2018,5,2), 'reports': 1 },
         { 'reporting_number': 'foo', 'payment_due': datetime(2018,5,1), 'reports': 1 }])
     agged = agg_reports(df)
-    print(agged)
     assert(agged.shape == (2,3))
     assert(agged.reports.tolist() == [1, 3])
     assert(agged.payment_due.tolist() == [datetime(2018,5,2), datetime(2018,5,1)])
     assert(agged.reporting_number.tolist() == ['bar', 'foo'])
 
-def test_payments(collection, df):
+# def test_payments(collection, df):
+#     crosswalk = pd.DataFrame([{ 'old_number': 'no', 'new_payment_number': 'yes'}])
+#     # workers = calc_payments(collection, df, crosswalk, pay_workers)
+#     # assert(workers.payment.tolist() == [14000, 12000, 11000, 12000, 10000, 10000])
+#     supers = calc_payments(collection, df, crosswalk, pay_supers)
+#     assert(supers.payment.tolist() == [10000, 10000, 11000, 10000, 12000, 10000])
+
+def test_payments_gives_base_for_each_month_with_one_message(collection, df):
     crosswalk = pd.DataFrame([{ 'old_number': 'no', 'new_payment_number': 'yes'}])
     workers = calc_payments(collection, df, crosswalk, pay_workers)
-    assert(workers.payment.tolist() == [14000, 12000, 11000, 12000, 10000, 10000])
-    supers = calc_payments(collection, df, crosswalk, pay_supers)
-    assert(supers.payment.tolist() == [10000, 10000, 11000, 10000, 12000, 10000])
+    workers[workers.number == 'baz'].payment.tolist() == [10000, 10000]
+
+def test_payments_gives_base_for_each_month_with_one_message(collection, df):
+    crosswalk = pd.DataFrame([{ 'old_number': 'no', 'new_payment_number': 'yes'}])
+    workers = calc_payments(collection, df, crosswalk, pay_workers)
+    assert(workers[workers.number == 'baz'].payment.tolist() == [10000, 10000])
 
 def test_payments_caps_at_30(fat_collection, df):
     crosswalk = pd.DataFrame([{ 'old_number': 'no', 'new_payment_number': 'yes'}])
@@ -160,6 +191,9 @@ def test_payments_caps_at_30(fat_collection, df):
 
 def test_create_clean_collection(colls_for_cleaning):
     old_coll, new_coll = colls_for_cleaning
-    m = create_clean_collection(old_coll, new_coll)
+    crosswalk = pd.DataFrame([ {'old_number': 'foo', 'new_payment_number': 'baz'}])
+    m = create_clean_collection(old_coll, new_coll, crosswalk)
     a = list(new_coll.find())
-    assert(len(a) == 2)
+    assert(len(a) == 3)
+    li = [i['workerPhone'] for i in a]
+    assert('foo' not in li)

@@ -12,8 +12,7 @@ from load_workers import get_testers
 import logging
 logging.basicConfig(level = logging.DEBUG)
 
-class FutureException(Exception):
-    pass
+
 
 def get_windows(start = datetime(2018, 5, 1), weeks = 1):
     times = []

@@ -145,11 +145,11 @@ def pay_workers(df):
             .rename( columns = {'reporting_number': 'number'})
             [['number', 'payment']])
 
-def translate_numbers(df, crosswalk):
-    d = df.merge(crosswalk, how = 'left', left_on = 'reporting_number', right_on= 'old_number')
+def translate_numbers(df, crosswalk, key = 'reporting_number'):
+    d = df.merge(crosswalk, how = 'left', left_on = key, right_on= 'old_number')
     idx = d.new_payment_number.notna()
-    d.loc[idx, 'reporting_number'] = d[idx].new_payment_number
-    return d[['reporting_number', 'reports', 'payment_due']]
+    d.loc[idx, key] = d[idx].new_payment_number
+    return d.drop(crosswalk.columns, 1)
 
 def agg_reports(df):
     others = df.groupby('reporting_number').agg('first').drop('reports', axis=1)
@@ -157,10 +157,11 @@ def agg_reports(df):
     return others.assign(reports = reports).reset_index()
 
 def get_count_df(coll, df, crosswalk):
+    df = translate_numbers(df, crosswalk)
     groups = [g for g in df.groupby('training_date')]
     reports = [[count_reports(coll, start, end, g[1].reporting_number) for start,end in monther(g[0])] for g in groups]
     reports = [i for r in reports for i in r if not i.empty]
-    translated = [r.pipe(translate_numbers, crosswalk = crosswalk).pipe(agg_reports)
+    translated = [r.pipe(agg_reports)
                   for r in reports]
     return pd.concat(translated).merge(df, on = 'reporting_number', how = 'left')
 
@@ -184,15 +185,16 @@ def get_crosswalk(path):
     return crosswalk
 
 def calcs():
+    df = get_numbers('rosters/chw.xlsx')
+    crosswalk = get_crosswalk('number-changes/number_changes.xlsx')
+
     client = get_mongo_client()
     old_coll = client['healthworkers'].messages
     temp_coll = client['healthworkers'].temp
-    create_clean_collection(old_coll, temp_coll)
+    create_clean_collection(old_coll, temp_coll, crosswalk)
 
-    df = get_numbers('rosters/chw.xlsx')
-    crosswalk = get_crosswalk('number-changes/number_changes.xlsx')
     workers = calc_payments(temp_coll, df, crosswalk, pay_workers)
-    supers = calc_payments(coll, df, crosswalk, pay_supers)
+    supers = calc_payments(temp_coll, df, crosswalk, pay_supers)
     temp_coll.drop()
     return workers, supers
 
@@ -210,8 +212,7 @@ def write_to_s3(df, key):
 def fix_time(d):
     return datetime.combine(datetime.date(d), datetime.min.time())
 
-def create_clean_collection(old_coll, temp_coll):
-
+def create_clean_collection(old_coll, temp_coll, crosswalk):
     messages = get_og_messages(old_coll)
 
     messages = (messages
@@ -219,7 +220,8 @@ def create_clean_collection(old_coll, temp_coll):
                 .assign(patientName = messages.patientName.str.upper())
                 .assign(code = messages.code.str.upper())
                 .groupby(['workerPhone', 'patientName', 'code', 'patientPhone', 'serviceDate'])
-                .apply(lambda df: df.head(1)))
+                .apply(lambda df: df.head(1))
+                .pipe(translate_numbers, crosswalk = crosswalk, key = 'workerPhone'))
 
     dicts = messages.to_dict(orient = 'records')
 
@@ -231,7 +233,6 @@ def create_clean_collection(old_coll, temp_coll):
         temp_coll.bulk_write(requests, ordered=False)
     logging.info('WROTE {} MESSAGES TO NEW COLLECTION'.format(i))
     return temp_coll
-
 
 if __name__ == '__main__':
     workers, supers = calcs()

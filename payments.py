@@ -182,6 +182,7 @@ def get_numbers(path):
 def get_crosswalk(path):
     crosswalk = pd.read_excel(path)
     crosswalk['old_number'] = crosswalk.z08_2.astype(str)
+    crosswalk['new_payment_number'] = crosswalk.new_payment_number.astype(str)
     return crosswalk
 
 def calcs():
@@ -205,7 +206,7 @@ def write_to_s3(df, key):
     s3 = boto3.client('s3')
     s3.put_object(
         Bucket='healthworkers-payments',
-        Key="{1}-{0:%d-%m-%y_%H:%M}.csv".format(datetime.now(), key),
+        Key="{1}-{0:%Y-%m-%d_%H:%M}.csv".format(datetime.now(), key),
         Body=out.getvalue()
     )
 
@@ -220,10 +221,11 @@ def create_clean_collection(old_coll, temp_coll, crosswalk):
                 .assign(patientName = messages.patientName.str.upper())
                 .assign(code = messages.code.str.upper())
                 .groupby(['workerPhone', 'patientName', 'code', 'patientPhone', 'serviceDate'])
-                .apply(lambda df: df.head(1))
-                .pipe(translate_numbers, crosswalk = crosswalk, key = 'workerPhone'))
+                .apply(lambda df: df.head(1)))
 
-    dicts = messages.to_dict(orient = 'records')
+    dicts = (messages
+             .pipe(translate_numbers, crosswalk = crosswalk, key = 'workerPhone')
+             .to_dict(orient = 'records'))
 
     i = 0
     chunked = chunk(400, dicts)

@@ -197,3 +197,8 @@ def test_create_clean_collection(colls_for_cleaning):
     assert(len(a) == 3)
     li = [i['workerPhone'] for i in a]
     assert('foo' not in li)
+
+def test_payments_df_has_count(collection, df):
+    crosswalk = pd.DataFrame([{ 'old_number': 'no', 'new_payment_number': 'yes'}])
+    workers = calc_payments(collection, df, crosswalk, pay_workers)
+    assert(workers[workers.number == 'bar'].reports.tolist() == [2,1,1])

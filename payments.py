@@ -132,7 +132,7 @@ def pay_supers(df):
             .pipe(bonus, fn = bonus_super)
             .pipe(lambda df: df.assign(payment = df.bonus + df.base))
             .rename( columns = {'phone_ps': 'number'})
-            [['number', 'payment']])
+            [['number', 'payment', 'reports']])
 
 def calc_payment_per_worker(df):
     return (df
@@ -143,7 +143,7 @@ def calc_payment_per_worker(df):
 def pay_workers(df):
     return (calc_payment_per_worker(df)
             .rename( columns = {'reporting_number': 'number'})
-            [['number', 'payment']])
+            [['number', 'payment', 'reports']])
 
 def translate_numbers(df, crosswalk, key = 'reporting_number'):
     d = df.merge(crosswalk, how = 'left', left_on = key, right_on= 'old_number')

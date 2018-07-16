@@ -26,8 +26,8 @@ def reformat_record(r):
 
 if __name__ == '__main__':
     load_dotenv()
-    # client = get_mongo_client()
-    client = get_mongo_client(test=True)
+    client = get_mongo_client()
+    # client = get_mongo_client(test=True)
 
     collection = client['healthworkers'].messages
 

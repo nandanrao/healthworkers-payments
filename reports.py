@@ -8,10 +8,10 @@ import requests
 from payments import get_numbers, get_mongo_client, get_crosswalk, get_og_messages
 from tag_training import tag_training_df
 from load_workers import get_testers
-
+from pymongo import UpdateOne
+from dotenv import load_dotenv
 import logging
-logging.basicConfig(level = logging.DEBUG)
-
+logging.basicConfig(level = logging.INFO)
 
 
 def get_windows(start = datetime(2018, 5, 1), weeks = 1):
@@ -73,11 +73,11 @@ def get_typeform_responses(form_id):
 def merge_typeform(messages, typeform):
 
     typeform = (typeform
-                .assign(visitdate = typeform.visitdate.map(parser.parse).map(datetime.date))
+                .assign(visitdate = typeform.visitdate.map(parser.parse).map(datetime.date).map(str))
                 .assign(patient = typeform.patient.str.upper())
                 .assign(code = typeform.code.str.upper()))
 
-    messages = (messages.assign(serviceDate = messages.serviceDate.map(datetime.date))
+    messages = (messages.assign(serviceDate = messages.serviceDate.map(datetime.date).map(str))
                 .assign(patientName = messages.patientName.str.upper())
                 .assign(code = messages.code.str.upper())
                 .groupby(['workerPhone', 'patientName', 'code', 'patientPhone', 'serviceDate'])
@@ -90,8 +90,6 @@ def merge_typeform(messages, typeform):
                    right_on=['workerphone', 'patientphone', 'patient', 'code'],
                    indicator = True)
             [[
-              'first_attempt',
-              'last_attempt',
               'called',
               '_merge',
               'noConsent',
@@ -108,57 +106,52 @@ class DataCorruptionError(BaseException):
     pass
 
 
+if __name__ == '__main__':
 
-# from pymongo import UpdateOne
-# from dotenv import load_dotenv
-# load_dotenv()
+    load_dotenv()
 
-# client = get_mongo_client()
-# messages = get_og_messages(client['healthworkers'].messages)
+    client = get_mongo_client()
+    messages = get_og_messages(client['healthworkers'].messages)
 
-# form_id = 'a1cQMO'
+    form_id = 'a1cQMO'
 
-# typeform = clean_typeform(get_typeform_responses(form_id))
+    typeform = clean_typeform(get_typeform_responses(form_id))
 
-# crosswalk = get_crosswalk('number-changes/number_changes.xlsx')
-# numbers = get_numbers('rosters/chw_database_20180608.xlsx')
+    crosswalk = get_crosswalk('number-changes/number_changes.xlsx')
+    numbers = get_numbers('rosters/chw.xlsx')
 
-# testers = get_testers(client['healthworkers'].messages, numbers, crosswalk)
-# training_dates = [(n['reporting_number'], n['training_date'])
-#                   for n in numbers.to_dict(orient='records')]
+    testers = get_testers(client['healthworkers'].messages, numbers, crosswalk)
+    training_dates = [(n['reporting_number'], n['training_date'])
+                  for n in numbers.to_dict(orient='records')]
 
-# tagged = tag_training_df(training_dates, messages, testers)
+    tagged = tag_training_df(training_dates, messages, testers)
 
-# # uniques = (tagged
-# #            .groupby(['patientName', 'code', 'serviceDate', 'patientPhone'])
-# #            .apply(lambda df: df.head(1)))
+    merged = merge_typeform(tagged, typeform)
 
-# messages = None
+    uniques, messages = None, None
 
-# merged = merge_typeform(tagged, typeform)
+    missing = merged[(~merged.workerPhone.isin(numbers.reporting_number)) &
+                 (merged.training == False)].shape[0]
+    if missing:
+        raise Exception('Missing numbers!!')
 
-# missing = merged[(~merged.workerPhone.isin(numbers.reporting_number)) &
-#                  (merged.training == False)].shape[0]
-# if missing:
-#     raise Exception('Missing numbers!!')
+    numbers = numbers.assign(training_date = numbers.training_date.map(datetime.date))
 
-# numbers = numbers.assign(training_date = numbers.training_date.map(datetime.date))
+    final = (merged
+             .merge(numbers, left_on='workerPhone', right_on='reporting_number')
+             .assign(training = merged.training.map(lambda x: x if x == True else False))
+             .assign(called = merged.called.map(lambda x: x if x == True else False))
+             .drop(['workerPhone', '_merge'], 1))
 
-# final = (merged
-#          .merge(numbers, left_on='workerPhone', right_on='reporting_number')
-#          .assign(training = merged.training.map(lambda x: x if x == True else False))
-#          .assign(called = merged.called.map(lambda x: x if x == True else False))
-#          .drop(['workerPhone', '_merge'], 1))
+    idx = final.called == True
 
-# idx = final.called == True
-
-# final.loc[idx, 'multiple'] = (final
-#                               [final.called == True]
-#                               .groupby(['patientName', 'code', 'patientPhone', 'reporting_number'])
-#                               .apply(lambda df: df.assign(multiple = True if df.shape[0] > 1 else False ))
-#                               .multiple.reset_index([0,1,2,3]).multiple)
+    final.loc[idx, 'multiple'] = (final
+                              [final.called == True]
+                              .groupby(['patientName', 'code', 'patientPhone', 'reporting_number'])
+                              .apply(lambda df: df.assign(multiple = True if df.shape[0] > 1 else False ))
+                              .multiple.reset_index([0,1,2,3]).multiple)
 
 
-# final = final.assign(multiple = final.multiple.map(lambda x: x if x == True else False))
+    final = final.assign(multiple = final.multiple.map(lambda x: x if x == True else False))
 
-# final.to_csv('report_2018-6-13.csv', index=False)
+    final.to_csv('report_2018-7-5.csv', index=False)

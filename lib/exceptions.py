@@ -1,0 +1,2 @@
+class MalformedDateException(Exception):
+    pass

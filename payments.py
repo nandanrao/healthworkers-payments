@@ -84,6 +84,7 @@ def pay_supers(df):
             .pipe(bonus, fn = bonus_super)
             .pipe(lambda df: df.assign(payment = df.bonus + df.base))
             .rename( columns = {'phone_ps': 'number'})
+            .pipe(lambda df: df.assign(number = df.number.astype(int).astype(str)))
             [['number', 'payment', 'reports', 'payment_due']])
 
 def calc_payment_per_worker(df):

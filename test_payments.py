@@ -4,18 +4,18 @@ import pandas as pd
 import pytest
 
 records = [
-    { 'paymentPhone': 'bar', 'serviceDate': datetime(2018,2,1), 'phone_ps': 'c',  'treat': 2, 'training_date': datetime(2018,1,1), 'training': False},
-    { 'paymentPhone': 'bar', 'serviceDate': datetime(2018,4,1), 'phone_ps': 'c',  'treat': 2, 'training_date': datetime(2018,1,1), 'training': False},
-    { 'paymentPhone': 'baz', 'serviceDate': datetime(2018,4,1), 'phone_ps': 'b', 'treat': 1, 'training_date': datetime(2018,1,1), 'training': False},
-    { 'paymentPhone': 'bra', 'serviceDate': datetime(2018,4,1), 'phone_ps': 'd', 'treat': 3, 'training_date': datetime(2018,1,1), 'training': False},
-    { 'paymentPhone': 'foo', 'serviceDate': datetime(2018,5,1), 'phone_ps': 'a', 'treat': 0, 'training_date': datetime(2018,1,1) , 'training': False},
-    { 'paymentPhone': 'foo', 'serviceDate': datetime(2018,5,1), 'phone_ps': 'a', 'treat': 0, 'training_date': datetime(2018,1,1) , 'training': False},
-    { 'paymentPhone': 'baz', 'serviceDate': datetime(2018,5,1), 'phone_ps': 'b', 'treat': 1, 'training_date': datetime(2018,1,1), 'training': False},
-    { 'paymentPhone': 'qux', 'serviceDate': datetime(2100,12,1), 'phone_ps': 'd', 'treat': 3, 'training_date': datetime(2018,1,1), 'training': False},
+    { 'paymentPhone': '01', 'serviceDate': datetime(2018,2,1), 'phone_ps': '13',  'treat': 2, 'training_date': datetime(2018,1,1), 'training': False},
+    { 'paymentPhone': '01', 'serviceDate': datetime(2018,4,1), 'phone_ps': '13',  'treat': 2, 'training_date': datetime(2018,1,1), 'training': False},
+    { 'paymentPhone': '02', 'serviceDate': datetime(2018,4,1), 'phone_ps': '12', 'treat': 1, 'training_date': datetime(2018,1,1), 'training': False},
+    { 'paymentPhone': '03', 'serviceDate': datetime(2018,4,1), 'phone_ps': '14', 'treat': 3, 'training_date': datetime(2018,1,1), 'training': False},
+    { 'paymentPhone': '04', 'serviceDate': datetime(2018,5,1), 'phone_ps': '11', 'treat': 0, 'training_date': datetime(2018,1,1) , 'training': False},
+    { 'paymentPhone': '04', 'serviceDate': datetime(2018,5,1), 'phone_ps': '11', 'treat': 0, 'training_date': datetime(2018,1,1) , 'training': False},
+    { 'paymentPhone': '01', 'serviceDate': datetime(2018,5,1), 'phone_ps': '12', 'treat': 1, 'training_date': datetime(2018,1,1), 'training': False},
+    { 'paymentPhone': '05', 'serviceDate': datetime(2100,12,1), 'phone_ps': '14', 'treat': 3, 'training_date': datetime(2018,1,1), 'training': False},
 ]
 
 fat_records = [
-    { 'paymentPhone': 'qux', 'serviceDate': datetime(2018,m,3), 'phone_ps': 'd', 'treat': 3, 'training_date': datetime(2018,1,1), 'training': False}
+    { 'paymentPhone': '05', 'serviceDate': datetime(2018,m,3), 'phone_ps': '14', 'treat': 3, 'training_date': datetime(2018,1,1), 'training': False}
 for m in range (3,5) for i in range(1,50)]
 
 @pytest.fixture()
@@ -65,20 +65,19 @@ def test_aggs_reports():
 
 def test_payments(messages):
     workers = calc_payments(messages, pay_workers)
-    assert(workers.payment.tolist() == [12000, 12000, 10000, 10000, 11000, 10000])
+    assert(workers.payment.tolist() == [12000, 12000, 10000, 11000, 10000, 10000])
     assert(workers.reports.tolist() == [1,1,1,1,1,2])
     supers = calc_payments(messages, pay_supers)
-    print(supers)
-    assert(supers.payment.tolist() == [10000, 12000, 12000, 10000, 10000, 11000])
+    assert(supers.payment.tolist() == [10000, 12000, 10000, 11000, 10000, 12000])
 
 def test_payments_gives_base_for_each_month_with_one_message(messages):
     workers = calc_payments(messages, pay_workers)
-    workers[workers.number == 'baz'].payment.tolist() == [10000, 10000]
+    workers[workers.number == '01'].payment.tolist() == [10000, 10000]
 
 def test_payments_caps_at_30(fat_messages):
     workers = calc_payments(fat_messages, pay_workers)
-    workers = workers[workers.number == 'qux']
+    workers = workers[workers.number == '05']
     assert(workers.payment.tolist() == [40000, 40000])
     supers = calc_payments(fat_messages, pay_supers)
-    supers = supers[supers.number == 'd']
+    supers = supers[supers.number == '14']
     assert(supers.payment.tolist() == [41000, 40000])

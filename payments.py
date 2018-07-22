@@ -34,23 +34,23 @@ def add_payment_date(messages):
     return messages.groupby('training_date').apply(_payment_date)
 
 def agg_reports(df):
-    drop_keys = ['_id', 'code', 'ogServiceDate', 'serviceDate',
-                 'patientName', 'patientPhone', 'timestamp',
-                 'training', 'called', 'noConsent', 'attempted']
     others = df.groupby(['paymentPhone', 'payment_due']).agg('first')
     reports = (df
                .assign(reports=1)
                .groupby(['paymentPhone', 'payment_due'])
                .agg({ 'reports': np.sum }).reports)
     return (others.assign(reports = reports)
-            .reset_index()
-            .drop(drop_keys, errors = 'ignore'))
+            .reset_index())
 
 def get_count_df(messages):
+    drop_keys = ['_id', 'code', 'ogServiceDate', 'serviceDate',
+                 'patientName', 'patientPhone', 'timestamp',
+                 'training', 'called', 'noConsent', 'attempted']
     messages = messages[messages.training == False]
     return (messages
             .pipe(add_payment_date)
             .pipe(agg_reports)
+            .drop(drop_keys, errors = 'ignore')
             .pipe(lambda df: df.assign(counted = np.minimum(df.reports, 30))))
 
 def bonus_worker(treat, counted, **kwargs):
@@ -104,12 +104,7 @@ def calc_payments(messages, fn):
             .sort_values('payment_due'))
 
 def calcs():
-    roster = get_roster('rosters/chw.xlsx')
-    crosswalk = get_crosswalk('number-changes/number_changes.xlsx')
-    client = get_mongo_client()
-    events = get_events(client['healthworkers'].events)
-    rawmessages = get_messages_df(client['healthworkers'].rawmessages)
-    messages = pipeline(rawmessages, events, roster, crosswalk)
+    messages = start_pipeline('')
     workers = calc_payments(messages, pay_workers)
     supers = calc_payments(messages, pay_supers)
     return workers, supers

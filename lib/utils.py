@@ -4,7 +4,7 @@ import pandas as pd
 from pymongo import MongoClient
 from datetime import datetime, timedelta
 from lib.exceptions import *
-
+import redis
 
 def chunk(n, it):
     src = iter(it)
@@ -21,6 +21,11 @@ def get_mongo_client(test = False):
                      username = os.getenv('MONGO_USER'),
                      password = os.getenv('MONGO_PASSWORD'))
     return client
+
+def get_redis_client(test = False):
+    host = os.getenv('REDIS_HOST_TEST', 'localhost') if test else os.getenv('REDIS_HOST')
+    return redis.StrictRedis(host=host, port=6379, db=0)
+
 
 not_d = re.compile(r'[^\d]+')
 start = re.compile(r'^[^\d]')

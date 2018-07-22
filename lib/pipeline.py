@@ -1,3 +1,5 @@
+from lib.utils import get_roster, get_events, get_crosswalk, get_mongo_client, get_messages_df
+
 def tag_training_messages(messages, numbers, crosswalk):
     """ Tags messages as training based on dates/numbers """
     pass
@@ -59,6 +61,14 @@ def pipeline(messages, events, roster, crosswalk):
             # Add events: no-consent, attempts, and called
             .pipe(add_db_events, events = events))
 
+def start_pipeline(pre = '../'):
+    roster = get_roster(pre+'rosters/chw.xlsx')
+    crosswalk = get_crosswalk(pre+'number-changes/number_changes.xlsx')
+    client = get_mongo_client()
+    events = get_events(client['healthworkers'].events)
+    rawmessages = get_messages_df(client['healthworkers'].rawmessages)
+    messages = pipeline(rawmessages, events, roster, crosswalk)
+    return messages
 
 
 # Calculate needed calls per worker, groupby district, write to redis list

@@ -5,9 +5,8 @@ from datetime import datetime, timedelta
 from dateutil import parser
 import os, re
 import requests
-from payments import get_numbers, get_mongo_client, get_crosswalk, get_og_messages
-from tag_training import tag_training_df
-from load_workers import get_testers
+from lib.utils import get_roster, get_mongo_client, get_crosswalk
+from lib.pipeline import start_pipeline
 from pymongo import UpdateOne
 from dotenv import load_dotenv
 import logging
@@ -40,13 +39,18 @@ def get_responses(form_id):
 
 def clean_typeform(typeform):
     collapse = lambda df: df.head(1).assign(provided_care = np.any(df.provided_care))
-
     typeform = typeform[~typeform.provided_care.isna()]
     groups = typeform.groupby(['patientphone', 'patient', 'code', 'visitdate'])
     norms = pd.concat([g for i,g in groups if g.shape[0] == 1])
     funkies = pd.concat([collapse(g) for i,g in groups if g.shape[0] > 1])
-    return pd.concat([norms, funkies])
-
+    typeform = pd.concat([norms, funkies])
+    return (typeform
+            .assign(visitdate = (typeform.visitdate
+                                 .map(parser.parse)
+                                 .map(datetime.date)
+                                 .map(str)))
+            .assign(patient = typeform.patient.str.upper())
+            .assign(code = typeform.code.str.upper()))
 
 def get_question(response, qid, key):
     return next((a[key] for a in response['answers']
@@ -62,45 +66,48 @@ def flatten_response(res):
         d['provided_care'] = provided_care
     return d
 
-
 def get_typeform_responses(form_id):
     responses = get_responses(form_id)
     df = pd.DataFrame([flatten_response(r) for r in responses])
     return df
 
-
-
-def merge_typeform(messages, typeform):
-
-    typeform = (typeform
-                .assign(visitdate = typeform.visitdate.map(parser.parse).map(datetime.date).map(str))
-                .assign(patient = typeform.patient.str.upper())
-                .assign(code = typeform.code.str.upper()))
-
-    messages = (messages.assign(serviceDate = messages.serviceDate.map(datetime.date).map(str))
-                .assign(patientName = messages.patientName.str.upper())
-                .assign(code = messages.code.str.upper())
-                .groupby(['workerPhone', 'patientName', 'code', 'patientPhone', 'serviceDate'])
-                .apply(lambda df: df.head(1)))
+def _merger(messages, typeform, date):
+    lefts = ['senderPhone', 'patientPhone', 'patientName', 'code']
+    rights = ['workerphone', 'patientphone', 'patient', 'code']
+    if date:
+        lefts += ['serviceDate']
+        rights += ['visitdate']
 
     return (messages
             .merge(typeform,
-                   how = 'left',
-                   left_on=['workerPhone', 'patientPhone', 'patientName', 'code'],
-                   right_on=['workerphone', 'patientphone', 'patient', 'code'],
-                   indicator = True)
-            [[
-              'called',
-              '_merge',
-              'noConsent',
-              'patientName',
-              'patientPhone',
-              'serviceDate',
-              'training',
-              'workerPhone',
-              'code',
-              'provided_care']]
-            )
+                   how = 'outer',
+                   left_on=lefts,
+                   right_on=rights,
+                   indicator = True,
+                   suffixes = ('_app', '_typeform')))
+
+
+def merge_typeform(messages, typeform):
+    typeform = typeform.assign(visitdate = typeform.visitdate.astype(str))
+    messages = messages.assign(serviceDate = messages.serviceDate.astype(str))
+
+    first = _merger(messages, typeform, True)
+    orphans = first[first._merge == 'right_only']
+    orphans = orphans.assign(called = orphans.called_typeform)[typeform.columns]
+    first = first[first._merge != 'right_only']
+    second = _merger(messages, orphans, False)
+    orphans = second[second._merge == 'right_only']
+    second = second[second._merge == 'both']
+
+    merged = (pd.concat([first, second])
+              .drop(['_id',
+                   'messageid',
+                   'patient',
+                   'patientphone',
+                   'worker',
+                   'workerphone'], 1))
+
+    return merged, orphans
 
 class DataCorruptionError(BaseException):
     pass
@@ -109,49 +116,11 @@ class DataCorruptionError(BaseException):
 if __name__ == '__main__':
 
     load_dotenv()
-
-    client = get_mongo_client()
-    messages = get_og_messages(client['healthworkers'].messages)
-
     form_id = 'a1cQMO'
-
     typeform = clean_typeform(get_typeform_responses(form_id))
 
-    crosswalk = get_crosswalk('number-changes/number_changes.xlsx')
-    numbers = get_numbers('rosters/chw.xlsx')
+    messages = start_pipeline('')
+    merged,_ = merge_typeform(messages, typeform)
+    merged = merged.drop(['_merge'], 1)
 
-    testers = get_testers(client['healthworkers'].messages, numbers, crosswalk)
-    training_dates = [(n['reporting_number'], n['training_date'])
-                  for n in numbers.to_dict(orient='records')]
-
-    tagged = tag_training_df(training_dates, messages, testers)
-
-    merged = merge_typeform(tagged, typeform)
-
-    uniques, messages = None, None
-
-    missing = merged[(~merged.workerPhone.isin(numbers.reporting_number)) &
-                 (merged.training == False)].shape[0]
-    if missing:
-        raise Exception('Missing numbers!!')
-
-    numbers = numbers.assign(training_date = numbers.training_date.map(datetime.date))
-
-    final = (merged
-             .merge(numbers, left_on='workerPhone', right_on='reporting_number')
-             .assign(training = merged.training.map(lambda x: x if x == True else False))
-             .assign(called = merged.called.map(lambda x: x if x == True else False))
-             .drop(['workerPhone', '_merge'], 1))
-
-    idx = final.called == True
-
-    final.loc[idx, 'multiple'] = (final
-                              [final.called == True]
-                              .groupby(['patientName', 'code', 'patientPhone', 'reporting_number'])
-                              .apply(lambda df: df.assign(multiple = True if df.shape[0] > 1 else False ))
-                              .multiple.reset_index([0,1,2,3]).multiple)
-
-
-    final = final.assign(multiple = final.multiple.map(lambda x: x if x == True else False))
-
-    final.to_csv('report_2018-7-5.csv', index=False)
+    merged.to_csv('report_2018-7-22.csv', index=False)

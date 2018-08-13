@@ -55,7 +55,7 @@ def write_needed_calls(to_call, r):
     for d in districts:
         old_size = r.llen(d)
         new_size = loaded[d]
-        logging.debug('loading {} new messages'.format(new_size))
+        logging.info('loading {} new messages in district {}'.format(new_size, d))
         if old_size > new_size:
             pipe.ltrim(d, 0, -loaded[d] - 1)
         else:
@@ -63,15 +63,27 @@ def write_needed_calls(to_call, r):
 
     pipe.execute()
 
-# TODO: GENERATE TEST DISRTICT
+
 def ex(thresh, since = timedelta(weeks = 4)):
-    messages = start_pipeline('')
     r = get_redis_client()
+    messages = start_pipeline('')
+
+    training = messages[messages.training == True]
+
     messages = messages[(messages.serviceDate > datetime.utcnow() - since) &
                         (messages.training == False) &
                         (messages.noConsent == False)]
 
+    # Write messages to be called
     (call_counts(messages)
      .pipe(add_needed_calls, target=thresh)
      .pipe(pick_needed_calls, messages=messages)
      .pipe(write_needed_calls, r=r))
+
+    # Write training messages
+    (training
+     .assign(district = 'Test')
+     .pipe(write_needed_calls, r=r))
+
+if __name__ == '__main__':
+    ex(.2)

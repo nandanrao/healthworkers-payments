@@ -1,4 +1,7 @@
 from lib.utils import get_roster, get_events, get_crosswalk, get_mongo_client, get_messages_df
+import logging
+import pandas as pd
+
 
 def tag_training_messages(messages, numbers, crosswalk):
     """ Tags messages as training based on dates/numbers """
@@ -13,29 +16,39 @@ def translate_numbers(df, crosswalk, old_key, new_key):
     return d.drop(crosswalk.columns, 1)
 
 def merge_worker_info(messages, roster, drop_keys):
+    logging.debug('PIPELNE: Merging worker info')
     m = messages.merge(roster, how = 'left', left_on = 'paymentPhone', right_on = 'reporting_number')
     return m.drop(drop_keys, 1)
 
 def assign_tester_numbers(messages, roster):
+    logging.debug('PIPELNE: Tagging tester messages.')
     idx = ~messages.paymentPhone.isin(roster.reporting_number)
     messages.loc[idx, 'training'] = True
     return messages
 
 def assign_training_messages(messages):
+    logging.debug('PIPELNE: Tagging training messages.')
     message_days = messages.serviceDate.map(lambda d: d.replace(hour=0,minute=0,second=0))
     idx = messages.training_date >= message_days
     messages.loc[idx, 'training'] = True
     return messages
 
 def add_db_events(messages, events):
+    logging.debug('PIPELNE: Adding events from DB')
     messages['called'] = False
     messages['noConsent'] = False
     messages['attempted'] = False
+    d = messages.set_index('_id').to_dict(orient='index')
     for e in events:
         key = e['event']
         i = e['record']['_id']
-        messages.loc[messages._id == i, key] = True
-    return messages
+        try:
+            d[i][key] = True
+            logging.debug('SUCCESS')
+        except KeyError:
+            logging.debug('KEY ERROR: {}'.format(i))
+            pass
+    return pd.DataFrame.from_dict(d, orient='index').reset_index()
 
 def pipeline(messages, events, roster, crosswalk):
     k = 'reporting_number'

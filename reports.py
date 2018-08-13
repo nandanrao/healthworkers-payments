@@ -72,6 +72,8 @@ def get_typeform_responses(form_id):
     return df
 
 def _merger(messages, typeform, date):
+    # TODO: replace this with the ID when we have v2 running.
+
     lefts = ['senderPhone', 'patientPhone', 'patientName', 'code']
     rights = ['workerphone', 'patientphone', 'patient', 'code']
     if date:
@@ -114,7 +116,6 @@ class DataCorruptionError(BaseException):
 
 
 if __name__ == '__main__':
-
     load_dotenv()
     form_id = 'a1cQMO'
     typeform = clean_typeform(get_typeform_responses(form_id))
@@ -122,5 +123,5 @@ if __name__ == '__main__':
     messages = start_pipeline('')
     merged,_ = merge_typeform(messages, typeform)
     merged = merged.drop(['_merge'], 1)
-
-    merged.to_csv('report_2018-7-22.csv', index=False)
+    filename = "reports_{0:%Y-%m-%d}.csv".format(datetime.now()),
+    merged.to_csv('reports_2018-07-31', index=False)

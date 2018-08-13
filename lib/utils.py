@@ -1,14 +1,27 @@
 from itertools import takewhile, islice, count
 import hashlib, logging, re, os
+from toolz import get_in
 import pandas as pd
-from pymongo import MongoClient
+from pymongo import MongoClient, UpdateOne
 from datetime import datetime, timedelta
-from lib.exceptions import *
+from .exceptions import *
 import redis
 
 def chunk(n, it):
     src = iter(it)
     return takewhile(bool, (list(islice(src, n)) for _ in count(0)))
+
+def bulk_upsert(coll, records, chunk_size, checked_keys):
+    dot = re.compile(r'\.')
+    chunked = chunk(chunk_size, records)
+    i = 0
+    for c in chunked:
+        requests = [ UpdateOne({ k: get_in(k.split('.'), obj) for k in checked_keys},
+                               { '$setOnInsert': obj },
+                               upsert=True) for obj in c ]
+        i += len(requests)
+        coll.bulk_write(requests, ordered=False)
+    return i
 
 def md5(s):
     h = hashlib.new('md5')
@@ -43,6 +56,9 @@ def get_service_date(entry):
         if report_date - date > timedelta(weeks = 8):
             raise MalformedDateException('Service date too far in the past: {}'.format(date))
     except MalformedDateException as e:
+        logging.debug(e)
+        date = fallback
+    except ValueError as e:
         logging.debug(e)
         date = fallback
     except Exception as e:

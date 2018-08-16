@@ -46,6 +46,9 @@ def write_needed_calls(to_call, r):
     districts = to_call.chw_district.unique().tolist()
     loaded = { d: 0 for d in districts }
 
+    # Replace nan values with None to become null in javascript
+    to_call = to_call.where((pd.notnull(to_call)), None)
+
     for rec in to_call.to_dict(orient='records'):
         district = rec['chw_district']
         d = dumps(rec)
@@ -63,6 +66,12 @@ def write_needed_calls(to_call, r):
 
     pipe.execute()
 
+
+def add_fake_training_date(df):
+    idx = df.training_date.isna()
+    df.loc[idx, 'training_date'] = datetime(1970,1,1)
+    df.fillna({'workerName' : 'Tester McTesterson'}, inplace=True)
+    return df
 
 def ex(thresh, since = timedelta(weeks = 4)):
     r = get_redis_client()
@@ -82,7 +91,8 @@ def ex(thresh, since = timedelta(weeks = 4)):
 
     # Write training messages
     (training
-     .assign(district = 'Test')
+     .assign(chw_district = 'Test')
+     .pipe(add_fake_training_date)
      .pipe(write_needed_calls, r=r))
 
 if __name__ == '__main__':

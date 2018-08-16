@@ -18,7 +18,7 @@ def translate_numbers(df, crosswalk, old_key, new_key):
 def merge_worker_info(messages, roster, drop_keys):
     logging.debug('PIPELNE: Merging worker info')
     m = messages.merge(roster, how = 'left', left_on = 'paymentPhone', right_on = 'reporting_number')
-    return m.drop(drop_keys, 1)
+    return m.drop(drop_keys, 1).rename(columns = { 'name': 'workerName' })
 
 def assign_tester_numbers(messages, roster):
     logging.debug('PIPELNE: Tagging tester messages.')
@@ -48,7 +48,10 @@ def add_db_events(messages, events):
         except KeyError:
             logging.debug('KEY ERROR: {}'.format(i))
             pass
-    return pd.DataFrame.from_dict(d, orient='index').reset_index()
+    return (pd.DataFrame
+            .from_dict(d, orient='index')
+            .reset_index()
+            .rename(columns = {'index': '_id'}))
 
 def pipeline(messages, events, roster, crosswalk):
     k = 'reporting_number'

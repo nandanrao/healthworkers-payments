@@ -3,6 +3,7 @@ from datetime import datetime
 import pandas as pd
 import pytest
 import redis
+import json
 from time import sleep
 from bson.json_util import dumps
 
@@ -70,6 +71,12 @@ def test_write_needed_calls_works_with_None_district(r):
     write_needed_calls(to_write, r)
     # Is this really the behavior we want???
     assert(r.rpop(None) != None)
+
+def test_write_needed_calls_works_with_NaNs(r):
+    to_write = pd.DataFrame([{'chw_district': 'foo', 'bar': np.nan}])
+    write_needed_calls(to_write, r)
+    # Is this really the behavior we want???
+    assert(r.rpop('foo') == b'{"bar": null, "chw_district": "foo"}')
 
 def test_write_needed_calls_works_with_large_curr_queue(r, to_write):
     # pops off only the size of the new queue

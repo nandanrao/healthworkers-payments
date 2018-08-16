@@ -88,8 +88,11 @@ def test_add_db_events(messages):
         { 'event': 'noConsent', 'timestamp': datetime(2018,1,3,1,1), 'record': {'_id': 'bar'}})
     new_messages = add_db_events(messages, events)
     assert(new_messages.called.tolist() == [False]*3)
-    assert(new_messages.noConsent.tolist() == [False, True, False])
-    assert(new_messages.attempted.tolist() == [True, False, False])
+    assert(new_messages.noConsent.sum() == 1)
+    assert(new_messages.attempted.sum() == 1)
+    assert(new_messages[new_messages._id == 'foo'].attempted.tolist() == [True])
+    assert(new_messages[new_messages._id == 'bar'].attempted.tolist() == [False])
+
 
 def test_pipeline_drops_duplicates(messages, roster):
     m = messages.to_dict(orient='records')

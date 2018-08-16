@@ -99,7 +99,15 @@ def get_roster(path):
     df['training_date'] = df.training_date.map(lambda d: datetime.strptime(d, '%d.%m.%y'))
     return df
 
-def get_crosswalk(path):
+def get_latest_s3(bucket, prefix):
+    objects = s3.list_objects(Bucket=bucket, Prefix=prefix)
+    s = sorted(objects['Contents'],
+               key=lambda o: o['LastModified'])
+    key = s[-1]['Key']
+    return 's3://{}/{}'.format(bucket, key)
+
+def get_crosswalk():
+    path = get_latest_s3('healthworkers-payments', 'number_changes/')
     crosswalk = pd.read_excel(path)
     crosswalk['old_number'] = crosswalk.z08_2.astype(str)
     crosswalk['new_payment_number'] = crosswalk.new_payment_number.astype(str)
